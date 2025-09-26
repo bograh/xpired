@@ -4,6 +4,8 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+
+	"github.com/lib/pq"
 )
 
 type Repository interface {
@@ -17,6 +19,12 @@ type Repository interface {
 	UpdateDocument(ctx context.Context, document *Document) error
 	DeleteDocument(ctx context.Context, documentID string) error
 	ListDocumentsByUserID(ctx context.Context, userID string) ([]*Document, error)
+	GetAllReminderIntervals(ctx context.Context) ([]*ReminderInterval, error)
+	GetReminderIntervalsFromIdLabels(ctx context.Context, idLabels []string) ([]*ReminderInterval, error)
+	GetReminderIntervalByID(ctx context.Context, id int) (*ReminderInterval, error)
+	SetDocumentReminders(ctx context.Context, documentID string, reminder *DocumentReminder) error
+	ToggleDocumentReminder(ctx context.Context, documentID string, reminderIntervalID int, enabled bool) error
+	GetDocumentRemindersByDocumentID(ctx context.Context, documentID string) ([]*DocumentReminder, error)
 }
 
 type repository struct {
@@ -217,9 +225,218 @@ func (r *repository) GetDocumentByID(ctx context.Context, documentID string) (*D
 }
 
 func (r *repository) UpdateDocument(ctx context.Context, document *Document) error {
-	panic("unimplemented")
+	query := `
+		UPDATE documents
+		SET name = $1, description = $2, identifier = $3, expiration_date = $4, timezone = $5, attachment_url = $6, updated_at = NOW()
+		WHERE id = $7
+		RETURNING updated_at
+	`
+	err := r.db.DB.QueryRowContext(
+		ctx,
+		query,
+		document.Name,
+		document.Description,
+		document.Identifier,
+		document.ExpirationDate,
+		document.Timezone,
+		document.AttachmentURL,
+		document.ID,
+	).Scan(&document.UpdatedAt)
+
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return fmt.Errorf("document not found")
+		}
+		return fmt.Errorf("failed to update document: %w", err)
+	}
+
+	return nil
 }
 
 func (r *repository) DeleteDocument(ctx context.Context, documentID string) error {
-	panic("unimplemented")
+	query := `
+		DELETE FROM documents
+		WHERE id = $1
+	`
+	result, err := r.db.DB.ExecContext(ctx, query, documentID)
+	if err != nil {
+		return fmt.Errorf("failed to delete document: %w", err)
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("failed to get rows affected: %w", err)
+	}
+	if rowsAffected == 0 {
+		return fmt.Errorf("document not found")
+	}
+
+	return nil
+}
+
+func (r *repository) GetAllReminderIntervals(ctx context.Context) ([]*ReminderInterval, error) {
+	query := `
+		SELECT id, label, days_before, id_label
+		FROM reminder_intervals
+	`
+	rows, err := r.db.DB.QueryContext(ctx, query)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get reminder intervals: %w", err)
+	}
+	defer rows.Close()
+
+	var intervals []*ReminderInterval
+	for rows.Next() {
+		var interval ReminderInterval
+		err := rows.Scan(
+			&interval.ID,
+			&interval.Label,
+			&interval.DaysBefore,
+			&interval.IdLabel,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan reminder interval: %w", err)
+		}
+		intervals = append(intervals, &interval)
+	}
+
+	if err = rows.Err(); err != nil {
+		return nil, fmt.Errorf("row iteration error: %w", err)
+	}
+	return intervals, nil
+}
+
+func (r *repository) GetReminderIntervalsFromIdLabels(ctx context.Context, idLabels []string) ([]*ReminderInterval, error) {
+	query := `
+		SELECT id, label, days_before, id_label
+		FROM reminder_intervals
+		WHERE id_label = ANY($1)
+	`
+	rows, err := r.db.DB.QueryContext(ctx, query, pq.Array(idLabels))
+	if err != nil {
+		return nil, fmt.Errorf("failed to get reminder intervals: %w", err)
+	}
+	defer rows.Close()
+
+	var intervals []*ReminderInterval
+	for rows.Next() {
+		var interval ReminderInterval
+		err := rows.Scan(
+			&interval.ID,
+			&interval.Label,
+			&interval.DaysBefore,
+			&interval.IdLabel,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan reminder interval: %w", err)
+		}
+		intervals = append(intervals, &interval)
+	}
+
+	if err = rows.Err(); err != nil {
+		return nil, fmt.Errorf("row iteration error: %w", err)
+	}
+	return intervals, nil
+}
+
+func (r *repository) GetReminderIntervalByID(ctx context.Context, id int) (*ReminderInterval, error) {
+	query := `
+		SELECT id, label, days_before, id_label
+		FROM reminder_intervals
+		WHERE id = $1
+	`
+	row := r.db.DB.QueryRowContext(ctx, query, id)
+	var interval ReminderInterval
+	err := row.Scan(
+		&interval.ID,
+		&interval.Label,
+		&interval.DaysBefore,
+		&interval.IdLabel,
+	)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, fmt.Errorf("reminder interval not found")
+		}
+		return nil, fmt.Errorf("failed to get reminder interval: %w", err)
+	}
+	return &interval, nil
+}
+
+func (r *repository) SetDocumentReminders(ctx context.Context, documentID string, reminder *DocumentReminder) error {
+	query := `
+		INSERT INTO document_reminders (id, document_id, reminder_interval_id, enabled)
+		VALUES ($1, $2, $3, $4)
+		RETURNING sent_at
+	`
+	err := r.db.DB.QueryRowContext(
+		ctx,
+		query,
+		reminder.ID,
+		documentID,
+		reminder.ReminderIntervalID,
+		reminder.Enabled,
+	).Scan(&reminder.SentAt)
+
+	if err != nil {
+		return fmt.Errorf("failed to create document reminder: %w", err)
+	}
+
+	return nil
+}
+
+func (r *repository) ToggleDocumentReminder(ctx context.Context, documentID string, reminderIntervalID int, enabled bool) error {
+	query := `
+		UPDATE document_reminders
+		SET enabled = $1, sent_at = NULL
+		WHERE document_id = $2 AND reminder_interval_id = $3
+	`
+	result, err := r.db.DB.ExecContext(ctx, query, enabled, documentID, reminderIntervalID)
+	if err != nil {
+		return fmt.Errorf("failed to toggle document reminder: %w", err)
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("failed to get rows affected: %w", err)
+	}
+	if rowsAffected == 0 {
+		return fmt.Errorf("document reminder not found")
+	}
+
+	return nil
+}
+
+func (r *repository) GetDocumentRemindersByDocumentID(ctx context.Context, documentID string) ([]*DocumentReminder, error) {
+	query := `
+		SELECT id, document_id, reminder_interval_id, enabled, sent_at
+		FROM document_reminders
+		WHERE document_id = $1
+	`
+	rows, err := r.db.DB.QueryContext(ctx, query, documentID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get document reminders: %w", err)
+	}
+	defer rows.Close()
+
+	var reminders []*DocumentReminder
+	for rows.Next() {
+		var reminder DocumentReminder
+		err := rows.Scan(
+			&reminder.ID,
+			&reminder.DocumentID,
+			&reminder.ReminderIntervalID,
+			&reminder.Enabled,
+			&reminder.SentAt,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan document reminder: %w", err)
+		}
+		reminders = append(reminders, &reminder)
+	}
+
+	if err = rows.Err(); err != nil {
+		return nil, fmt.Errorf("row iteration error: %w", err)
+	}
+
+	return reminders, nil
 }

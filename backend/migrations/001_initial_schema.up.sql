@@ -27,7 +27,8 @@ CREATE TABLE IF NOT EXISTS documents (
 CREATE TABLE IF NOT EXISTS reminder_intervals (
     id serial PRIMARY KEY,
     label text NOT NULL, -- e.g. '1 week before'
-    days_before int NOT NULL -- e.g. 7, 3, 1, 0
+    days_before int NOT NULL, -- e.g. 7, 3, 1, 0
+    id_label text NOT NULL -- e.g. '7d', '3d', '1d', '0d'
 );
 
 -- document_reminders (what reminders are enabled for this document)

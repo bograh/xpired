@@ -33,6 +33,7 @@ type ReminderInterval struct {
 	ID         int    `json:"id" db:"id"`
 	Label      string `json:"label" db:"label"`
 	DaysBefore int    `json:"daysBefore" db:"days_before"`
+	IdLabel    string `json:"idLabel" db:"id_label"`
 }
 
 type DocumentReminder struct {

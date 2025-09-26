@@ -101,8 +101,8 @@ func (h *Handler) RegisterHandler(w http.ResponseWriter, r *http.Request) {
 		"user":    userResp,
 	}
 
-	w.WriteHeader(http.StatusCreated)
 	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusCreated)
 	json.NewEncoder(w).Encode(resp)
 }
 
@@ -153,7 +153,6 @@ func (h *Handler) LoginHandler(w http.ResponseWriter, r *http.Request) {
 		"user":    userResp,
 	}
 
-	w.WriteHeader(http.StatusOK)
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(resp)
 }
@@ -183,7 +182,6 @@ func (h *Handler) UserProfileHandler(w http.ResponseWriter, r *http.Request) {
 		"user":    userResp,
 	}
 
-	w.WriteHeader(http.StatusOK)
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(resp); err != nil {
 		http.Error(w, "Failed to encode response", http.StatusInternalServerError)
@@ -236,7 +234,6 @@ func (h *Handler) ListDocumentsHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
 	if err := json.NewEncoder(w).Encode(resp); err != nil {
 		http.Error(w, "Failed to encode response", http.StatusInternalServerError)
 	}
@@ -284,6 +281,33 @@ func (h *Handler) CreateDocumentHandler(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
+	reminderIntervals, err := h.repo.GetReminderIntervalsFromIdLabels(r.Context(), req.Reminders)
+	if err != nil {
+		http.Error(w, "Failed to fetch reminder intervals", http.StatusInternalServerError)
+		return
+	}
+
+	var reminders []ReminderIntervalResponse
+	for _, interval := range reminderIntervals {
+		rmInterval := ReminderIntervalResponse{
+			ID:    interval.IdLabel,
+			Label: interval.Label,
+		}
+		reminders = append(reminders, rmInterval)
+		docReminder := &db.DocumentReminder{
+			ID:                 uuid.New(),
+			DocumentID:         newDoc.ID.String(),
+			ReminderIntervalID: interval.ID,
+			Enabled:            true,
+			SentAt:             nil,
+		}
+		err = h.repo.SetDocumentReminders(r.Context(), newDoc.ID.String(), docReminder)
+		if err != nil {
+			http.Error(w, "Failed to set document reminders", http.StatusInternalServerError)
+			return
+		}
+	}
+
 	expiryDateTime := newDoc.ExpirationDate.In(time.FixedZone(newDoc.Timezone, 0))
 	expiryDate := time.Date(expiryDateTime.Year(), expiryDateTime.Month(), expiryDateTime.Day(), 0, 0, 0, 0, expiryDateTime.Location())
 
@@ -296,7 +320,7 @@ func (h *Handler) CreateDocumentHandler(w http.ResponseWriter, r *http.Request) 
 		ExpirationDate: expiryDate.Format("Mon, 2 Jan, 2006"),
 		Timezone:       newDoc.Timezone,
 		AttachmentURL:  newDoc.AttachmentURL,
-		Reminders:      []db.DocumentReminder{},
+		Reminders:      reminders,
 		CreatedAt:      newDoc.CreatedAt,
 		UpdatedAt:      newDoc.UpdatedAt,
 	}
@@ -306,8 +330,8 @@ func (h *Handler) CreateDocumentHandler(w http.ResponseWriter, r *http.Request) 
 		"document": doc,
 	}
 
-	w.WriteHeader(http.StatusCreated)
 	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusCreated)
 	if err := json.NewEncoder(w).Encode(resp); err != nil {
 		http.Error(w, "Failed to encode response", http.StatusInternalServerError)
 	}
@@ -342,6 +366,24 @@ func (h *Handler) GetDocumentHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	reminders, err := h.repo.GetDocumentRemindersByDocumentID(r.Context(), documentId)
+	if err != nil {
+		http.Error(w, "Failed to fetch document reminders", http.StatusInternalServerError)
+		return
+	}
+
+	var rems []ReminderIntervalResponse
+	for _, reminder := range reminders {
+		interval, err := h.repo.GetReminderIntervalByID(r.Context(), reminder.ReminderIntervalID)
+		if err == nil {
+			remInterval := ReminderIntervalResponse{
+				ID:    interval.IdLabel,
+				Label: interval.Label,
+			}
+			rems = append(rems, remInterval)
+		}
+	}
+
 	docResp := &DocumentResponse{
 		ID:             doc.ID.String(),
 		UserID:         doc.UserID.String(),
@@ -351,7 +393,7 @@ func (h *Handler) GetDocumentHandler(w http.ResponseWriter, r *http.Request) {
 		ExpirationDate: doc.ExpirationDate.Format("Mon, 2 Jan, 2006"),
 		Timezone:       doc.Timezone,
 		AttachmentURL:  doc.AttachmentURL,
-		Reminders:      []db.DocumentReminder{},
+		Reminders:      rems,
 		CreatedAt:      doc.CreatedAt,
 		UpdatedAt:      doc.UpdatedAt,
 	}
@@ -361,7 +403,6 @@ func (h *Handler) GetDocumentHandler(w http.ResponseWriter, r *http.Request) {
 		"document": docResp,
 	}
 
-	w.WriteHeader(http.StatusOK)
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(resp); err != nil {
 		http.Error(w, "Failed to encode response", http.StatusInternalServerError)
@@ -369,11 +410,300 @@ func (h *Handler) GetDocumentHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) UpdateDocumentHandler(w http.ResponseWriter, r *http.Request) {
-	// Update a specific document by ID
-	w.Write([]byte("Document Updated"))
+	documentId := chi.URLParam(r, "id")
+	if documentId == "" {
+		http.Error(w, "Document ID is required", http.StatusBadRequest)
+		return
+	}
+	userID, err := auth.GetUserIDFromContext(r)
+	if err != nil {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	err = h.repo.CheckUserExistsById(r.Context(), userID)
+	if err != nil {
+		http.Error(w, "User not found", http.StatusNotFound)
+		return
+	}
+
+	doc, err := h.repo.GetDocumentByID(r.Context(), documentId)
+	if err != nil {
+		http.Error(w, "Document not found", http.StatusNotFound)
+		return
+	}
+
+	if doc.UserID.String() != userID {
+		http.Error(w, "Forbidden", http.StatusForbidden)
+		return
+	}
+	var req DocumentRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	if req.Name != "" {
+		doc.Name = req.Name
+	}
+	if req.Description != nil {
+		doc.Description = req.Description
+	}
+	if req.Identifier != nil {
+		doc.Identifier = req.Identifier
+	}
+	if !req.ExpirationDate.IsZero() {
+		doc.ExpirationDate = req.ExpirationDate
+	}
+	if req.Timezone != "" {
+		doc.Timezone = req.Timezone
+	}
+	if req.AttachmentURL != nil {
+		doc.AttachmentURL = req.AttachmentURL
+	}
+	doc.UpdatedAt = time.Now()
+
+	err = h.repo.UpdateDocument(r.Context(), doc)
+	if err != nil {
+		http.Error(w, "Failed to update document", http.StatusInternalServerError)
+		return
+	}
+
+	reminderIntervals, err := h.repo.GetReminderIntervalsFromIdLabels(r.Context(), req.Reminders)
+	if err != nil {
+		http.Error(w, "Failed to fetch reminder intervals", http.StatusInternalServerError)
+		return
+	}
+
+	var reminders []ReminderIntervalResponse
+	for _, interval := range reminderIntervals {
+		reminderInterval := ReminderIntervalResponse{
+			ID:    interval.IdLabel,
+			Label: interval.Label,
+		}
+		reminders = append(reminders, reminderInterval)
+		docReminder := &db.DocumentReminder{
+			ID:                 uuid.New(),
+			DocumentID:         doc.ID.String(),
+			ReminderIntervalID: interval.ID,
+			Enabled:            true,
+			SentAt:             nil,
+		}
+		err = h.repo.SetDocumentReminders(r.Context(), doc.ID.String(), docReminder)
+		if err != nil {
+			http.Error(w, "Failed to set document reminders", http.StatusInternalServerError)
+			return
+		}
+	}
+
+	updatedDoc := &DocumentResponse{
+		ID:             doc.ID.String(),
+		UserID:         doc.UserID.String(),
+		Name:           doc.Name,
+		Description:    doc.Description,
+		Identifier:     doc.Identifier,
+		ExpirationDate: doc.ExpirationDate.Format("Mon, 2 Jan, 2006"),
+		Timezone:       doc.Timezone,
+		AttachmentURL:  doc.AttachmentURL,
+		Reminders:      reminders,
+		CreatedAt:      doc.CreatedAt,
+		UpdatedAt:      doc.UpdatedAt,
+	}
+
+	resp := map[string]interface{}{
+		"message":  "Document updated successfully",
+		"document": updatedDoc,
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(resp); err != nil {
+		http.Error(w, "Failed to encode response", http.StatusInternalServerError)
+	}
 }
 
 func (h *Handler) DeleteDocumentHandler(w http.ResponseWriter, r *http.Request) {
-	// Delete a specific document by ID
-	w.Write([]byte("Document Deleted"))
+	documentId := chi.URLParam(r, "id")
+	if documentId == "" {
+		http.Error(w, "Document ID is required", http.StatusBadRequest)
+		return
+	}
+	userID, err := auth.GetUserIDFromContext(r)
+	if err != nil {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	err = h.repo.CheckUserExistsById(r.Context(), userID)
+	if err != nil {
+		http.Error(w, "User not found", http.StatusNotFound)
+		return
+	}
+
+	doc, err := h.repo.GetDocumentByID(r.Context(), documentId)
+	if err != nil {
+		http.Error(w, "Document not found", http.StatusNotFound)
+		return
+	}
+
+	if doc.UserID.String() != userID {
+		http.Error(w, "Forbidden", http.StatusForbidden)
+		return
+	}
+	err = h.repo.DeleteDocument(r.Context(), documentId)
+	if err != nil {
+		http.Error(w, "Failed to delete document", http.StatusInternalServerError)
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (h *Handler) GetReminderIntervalsHandler(w http.ResponseWriter, r *http.Request) {
+	intervals, err := h.repo.GetAllReminderIntervals(r.Context())
+	if err != nil {
+		http.Error(w, "Failed to fetch reminder intervals", http.StatusInternalServerError)
+		return
+	}
+
+	var respIntervals []ReminderIntervalResponse
+	for _, interval := range intervals {
+		respInterval := ReminderIntervalResponse{
+			ID:    interval.IdLabel,
+			Label: interval.Label,
+		}
+		respIntervals = append(respIntervals, respInterval)
+	}
+
+	resp := map[string]interface{}{
+		"message":           "List of Reminder Intervals",
+		"reminderIntervals": respIntervals,
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(resp); err != nil {
+		http.Error(w, "Failed to encode response", http.StatusInternalServerError)
+	}
+}
+
+func (h *Handler) GetDocumentRemindersHandler(w http.ResponseWriter, r *http.Request) {
+	documentId := chi.URLParam(r, "id")
+	if documentId == "" {
+		http.Error(w, "Document ID is required", http.StatusBadRequest)
+		return
+	}
+	userID, err := auth.GetUserIDFromContext(r)
+	if err != nil {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	err = h.repo.CheckUserExistsById(r.Context(), userID)
+	if err != nil {
+		http.Error(w, "User not found", http.StatusNotFound)
+		return
+	}
+
+	doc, err := h.repo.GetDocumentByID(r.Context(), documentId)
+	if err != nil {
+		http.Error(w, "Document not found", http.StatusNotFound)
+		return
+	}
+
+	if doc.UserID.String() != userID {
+		http.Error(w, "Forbidden", http.StatusForbidden)
+		return
+	}
+
+	reminders, err := h.repo.GetDocumentRemindersByDocumentID(r.Context(), documentId)
+	if err != nil {
+		http.Error(w, "Failed to fetch document reminders", http.StatusInternalServerError)
+		return
+	}
+
+	var rems []DocumentReminderIntervalResponse
+	for _, reminder := range reminders {
+		interval, err := h.repo.GetReminderIntervalByID(r.Context(), reminder.ReminderIntervalID)
+		if err == nil {
+			remInterval := DocumentReminderIntervalResponse{
+				ID:      interval.IdLabel,
+				Label:   interval.Label,
+				Enabled: reminder.Enabled,
+			}
+			rems = append(rems, remInterval)
+		}
+	}
+
+	docResp := map[string]interface{}{
+		"id":          doc.ID.String(),
+		"name":        doc.Name,
+		"description": doc.Description,
+		"reminders":   rems,
+	}
+
+	resp := map[string]interface{}{
+		"message": "Document Reminders fetched successfully",
+		"data":    docResp,
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(resp); err != nil {
+		http.Error(w, "Failed to encode response", http.StatusInternalServerError)
+	}
+}
+
+func (h *Handler) ToggleDocumentReminderHandler(w http.ResponseWriter, r *http.Request) {
+	documentId := chi.URLParam(r, "id")
+	if documentId == "" {
+		http.Error(w, "Document ID is required", http.StatusBadRequest)
+		return
+	}
+	userID, err := auth.GetUserIDFromContext(r)
+	if err != nil {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	err = h.repo.CheckUserExistsById(r.Context(), userID)
+	if err != nil {
+		http.Error(w, "User not found", http.StatusNotFound)
+		return
+	}
+
+	doc, err := h.repo.GetDocumentByID(r.Context(), documentId)
+	if err != nil {
+		http.Error(w, "Document not found", http.StatusNotFound)
+		return
+	}
+
+	if doc.UserID.String() != userID {
+		http.Error(w, "Forbidden", http.StatusForbidden)
+		return
+	}
+
+	var req ToggleDocumentReminderRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	reminderIntervals, err := h.repo.GetReminderIntervalsFromIdLabels(r.Context(), []string{req.ReminderIntervalID})
+	if err != nil || len(reminderIntervals) == 0 {
+		http.Error(w, "Reminder interval not found", http.StatusNotFound)
+		return
+	}
+	reminderInterval := reminderIntervals[0]
+	err = h.repo.ToggleDocumentReminder(r.Context(), doc.ID.String(), reminderInterval.ID, req.Enabled)
+	if err != nil {
+		http.Error(w, "Failed to update document reminder", http.StatusInternalServerError)
+		return
+	}
+
+	resp := map[string]interface{}{
+		"message": "Document reminder updated successfully",
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(resp); err != nil {
+		http.Error(w, "Failed to encode response", http.StatusInternalServerError)
+	}
 }

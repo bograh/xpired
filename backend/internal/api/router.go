@@ -54,8 +54,12 @@ func SetupRoutes(
 				r.Get("/{id}", handler.GetDocumentHandler)
 				r.Put("/{id}", handler.UpdateDocumentHandler)
 				r.Delete("/{id}", handler.DeleteDocumentHandler)
+				r.Get("/{id}/reminders", handler.GetDocumentRemindersHandler)
+				r.Put("/{id}/reminders", handler.ToggleDocumentReminderHandler)
 			})
 		})
+
+		r.Get("/reminder-intervals", handler.GetReminderIntervalsHandler)
 	})
 
 	return r
