@@ -1,0 +1,533 @@
+openapi: 3.0.0
+info:
+  title: XPIRED API
+  version: 1.0.0
+  description: API for managing document expiration reminders
+servers:
+  - url: "https://api.xpired.com"
+    description: Production server
+  - url: "http://localhost:8080"
+    description: Local server
+paths:
+  /api/auth/register:
+    post:
+      summary: Register a new user
+      tags: &ref_0
+        - Auth
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - email
+                - name
+                - phoneNumber
+                - password
+              properties:
+                email:
+                  type: string
+                  format: email
+                name:
+                  type: string
+                phoneNumber:
+                  type: string
+                password:
+                  type: string
+                  format: password
+            example:
+              email: benclanks@gmail.com
+              name: Ben Clanks
+              phoneNumber: "0504746610"
+              password: password
+      responses:
+        "201":
+          description: User registered successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                  user:
+                    $ref: "#/components/schemas/User"
+        "400":
+          description: Bad request - invalid input
+        "409":
+          description: User already exists
+  /api/auth/signin:
+    post:
+      summary: User login
+      tags: *ref_0
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - email
+                - password
+              properties:
+                email:
+                  type: string
+                  format: email
+                password:
+                  type: string
+                  format: password
+            example:
+              email: benclanks@gmail.com
+              password: password
+      responses:
+        "200":
+          description: Login successful
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                  user:
+                    $ref: "#/components/schemas/User"
+        "401":
+          description: Invalid credentials
+        "400":
+          description: Bad request
+  /api/auth/me:
+    get:
+      summary: Get current user profile
+      tags: *ref_0
+      security:
+        - BearerAuth: []
+      responses:
+        "200":
+          description: User profile
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                  user:
+                    $ref: "#/components/schemas/User"
+        "401":
+          description: Unauthorized
+  /api/auth/logout:
+    post:
+      summary: User logout
+      tags: *ref_0
+      security:
+        - BearerAuth: []
+      responses:
+        "200":
+          description: Logout successful
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+        "401":
+          description: Unauthorized
+  /api/documents:
+    post:
+      summary: Create a new document
+      tags: &ref_1
+        - Documents
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - name
+                - expirationDate
+              properties:
+                name:
+                  type: string
+                description:
+                  type: string
+                identifier:
+                  type: string
+                expirationDate:
+                  type: string
+                  format: date-time
+                timezone:
+                  type: string
+                attachmentUrl:
+                  type: string
+                  format: uri
+                reminders:
+                  type: array
+                  items:
+                    type: string
+                    description: "Reminder interval (e.g., '7d', '30d', '90d')"
+            example:
+              name: Driving License
+              description: Ben's Driving License
+              identifier: GH123456
+              expirationDate: "2025-12-31T00:00:00Z"
+              timezone: Africa/Accra
+              attachmentUrl: https://example.com/license.pdf
+              reminders:
+                - 7d
+                - 30d
+                - 90d
+      responses:
+        "201":
+          description: Document created successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                  document:
+                    $ref: "#/components/schemas/Document"
+        "400":
+          description: Bad request
+        "401":
+          description: Unauthorized
+    get:
+      summary: Get all user documents
+      tags: *ref_1
+      security:
+        - BearerAuth: []
+      responses:
+        "200":
+          description: List of documents
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                  documents:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Document"
+        "401":
+          description: Unauthorized
+  /api/documents/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+        description: Document ID
+    get:
+      summary: Get a single document
+      tags: *ref_1
+      security:
+        - BearerAuth: []
+      responses:
+        "200":
+          description: Document details
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                  document:
+                    $ref: "#/components/schemas/Document"
+        "404":
+          description: Document not found
+        "401":
+          description: Unauthorized
+        "403":
+          description: Forbidden - document belongs to another user
+    put:
+      summary: Update a document
+      tags: *ref_1
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                description:
+                  type: string
+                identifier:
+                  type: string
+                expirationDate:
+                  type: string
+                  format: date-time
+                timezone:
+                  type: string
+                attachmentUrl:
+                  type: string
+                  format: uri
+                reminders:
+                  type: array
+                  items:
+                    type: string
+                    description: "Reminder interval (e.g., '7d', '30d', '90d')"
+            example:
+              name: Driving License
+              description: Ben's Driver's License
+              identifier: GH123456
+              expirationDate: "2025-12-31T00:00:00Z"
+              timezone: Africa/Accra
+              attachmentUrl: https://example.com/license.pdf
+              reminders:
+                - 7d
+                - 30d
+                - 90d
+      responses:
+        "200":
+          description: Document updated successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                  document:
+                    $ref: "#/components/schemas/Document"
+        "400":
+          description: Bad request
+        "404":
+          description: Document not found
+        "401":
+          description: Unauthorized
+        "403":
+          description: Forbidden - document belongs to another user
+    delete:
+      summary: Delete a document
+      tags: *ref_1
+      security:
+        - BearerAuth: []
+      responses:
+        "204":
+          description: Document deleted successfully
+        "404":
+          description: Document not found
+        "401":
+          description: Unauthorized
+        "403":
+          description: Forbidden - document belongs to another user
+  /api/documents/{id}/reminders:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+        description: Document ID
+    get:
+      summary: Get document reminders
+      tags: *ref_1
+      security:
+        - BearerAuth: []
+      responses:
+        "200":
+          description: Document reminders
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                  data:
+                    type: object
+                    properties:
+                      id:
+                        type: string
+                        format: uuid
+                      name:
+                        type: string
+                      description:
+                        type: string
+                        nullable: true
+                      reminders:
+                        type: array
+                        items:
+                          $ref: "#/components/schemas/DocumentReminderInterval"
+        "404":
+          description: Document not found
+        "401":
+          description: Unauthorized
+        "403":
+          description: Forbidden - document belongs to another user
+    put:
+      summary: Toggle document reminder
+      tags: *ref_1
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - interval_id
+                - enabled
+              properties:
+                interval_id:
+                  type: string
+                  description: "Reminder interval (e.g., '7d', '30d', '90d')"
+                enabled:
+                  type: boolean
+            example:
+              interval_id: 90d
+              enabled: false
+      responses:
+        "200":
+          description: Reminder updated successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+        "400":
+          description: Bad request
+        "404":
+          description: Document not found
+        "401":
+          description: Unauthorized
+        "403":
+          description: Forbidden - document belongs to another user
+  /health:
+    get:
+      summary: Health check
+      tags: &ref_2
+        - System
+      responses:
+        "200":
+          description: Service is healthy
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                  service:
+                    type: string
+                  timestamp:
+                    type: string
+  /reminder-intervals:
+    get:
+      summary: Get available reminder intervals
+      tags: *ref_2
+      responses:
+        "200":
+          description: List of available reminder intervals
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                  reminderIntervals:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/ReminderInterval"
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  schemas:
+    User:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        email:
+          type: string
+          format: email
+        name:
+          type: string
+        phoneNumber:
+          type: string
+          nullable: true
+
+    Document:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        userId:
+          type: string
+          format: uuid
+        name:
+          type: string
+        description:
+          type: string
+          nullable: true
+        identifier:
+          type: string
+          nullable: true
+        expirationDate:
+          type: string
+          description: "Formatted date string (e.g., 'Mon, 2 Jan, 2006')"
+        timezone:
+          type: string
+        attachmentUrl:
+          type: string
+          format: uri
+          nullable: true
+        reminders:
+          type: array
+          items:
+            $ref: "#/components/schemas/ReminderInterval"
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    ReminderInterval:
+      type: object
+      properties:
+        id:
+          type: string
+          description: "Interval ID label (e.g., '7d', '30d', '90d')"
+        label:
+          type: string
+          description: "Human-readable label"
+
+    DocumentReminderInterval:
+      type: object
+      properties:
+        id:
+          type: string
+          description: "Interval ID label (e.g., '7d', '30d', '90d')"
+        label:
+          type: string
+          description: "Human-readable label"
+        enabled:
+          type: boolean
