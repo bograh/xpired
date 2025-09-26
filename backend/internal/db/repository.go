@@ -14,6 +14,8 @@ type Repository interface {
 	CheckUserExistsById(ctx context.Context, userID string) error
 	GetUserByID(ctx context.Context, userID string) (*User, error)
 	GetUserByEmail(ctx context.Context, email string) (*User, error)
+	GetUserEmail(ctx context.Context, userID string) (string, error)
+	GetUserPhoneNumber(ctx context.Context, userID string) (string, error)
 	CreateDocument(ctx context.Context, document *Document) error
 	GetDocumentByID(ctx context.Context, documentID string) (*Document, error)
 	UpdateDocument(ctx context.Context, document *Document) error
@@ -125,6 +127,32 @@ func (r *repository) GetUserByEmail(ctx context.Context, email string) (*User, e
 		return nil, fmt.Errorf("failed to get user by ID: %w", err)
 	}
 	return &user, nil
+}
+
+func (r *repository) GetUserEmail(ctx context.Context, userID string) (string, error) {
+	var email string
+	query := `SELECT email FROM users WHERE id = $1`
+	err := r.db.DB.QueryRowContext(ctx, query, userID).Scan(&email)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return "", fmt.Errorf("user does not exist")
+		}
+		return "", fmt.Errorf("failed to get user email: %w", err)
+	}
+	return email, nil
+}
+
+func (r *repository) GetUserPhoneNumber(ctx context.Context, userID string) (string, error) {
+	var phoneNumber string
+	query := `SELECT phone_number FROM users WHERE id = $1`
+	err := r.db.DB.QueryRowContext(ctx, query, userID).Scan(&phoneNumber)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return "", fmt.Errorf("user does not exist")
+		}
+		return "", fmt.Errorf("failed to get user phone number: %w", err)
+	}
+	return phoneNumber, nil
 }
 
 func (r *repository) CreateDocument(ctx context.Context, document *Document) error {

@@ -2,12 +2,15 @@ package api
 
 import (
 	"net/http"
+	"os"
+	"path/filepath"
 	"xpired/internal/auth"
 	database "xpired/internal/db"
 
 	"github.com/go-chi/chi/v5"
 	chiMiddleware "github.com/go-chi/chi/v5/middleware"
 	"github.com/go-chi/cors"
+	httpSwagger "github.com/swaggo/http-swagger"
 )
 
 func SetupRoutes(
@@ -21,7 +24,7 @@ func SetupRoutes(
 	r.Use(chiMiddleware.RealIP)
 
 	r.Use(cors.Handler(cors.Options{
-		AllowedOrigins:   []string{"https://campus-connect-liard-ten.vercel.app"},
+		AllowedOrigins:   []string{"*"},
 		AllowedMethods:   []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
 		AllowedHeaders:   []string{"Accept", "Authorization", "Content-Type", "X-CSRF-Token", "Cookie"},
 		ExposedHeaders:   []string{"Link"},
@@ -33,6 +36,18 @@ func SetupRoutes(
 	handler := NewHandler(repo)
 
 	r.Get("/health", handler.HealthHandler)
+
+	r.Get("/openapi.yml", func(w http.ResponseWriter, r *http.Request) {
+		cwd, _ := os.Getwd()
+		specPath := filepath.Join(cwd, "openapi.yml")
+		http.ServeFile(w, r, specPath)
+	})
+
+	httpSwagger.URL("/openapi.yml") // The url pointing to API definition
+
+	r.Get("/swagger/*", httpSwagger.Handler(
+		httpSwagger.URL("/openapi.yml"),
+	))
 
 	r.Route("/api", func(r chi.Router) {
 		r.Route("/auth", func(r chi.Router) {

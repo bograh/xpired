@@ -10,6 +10,7 @@ import (
 type Config struct {
 	Database db.Config
 	JWT      JWTConfig
+	Redis    RedisConfig
 }
 
 type ServerConfig struct {
@@ -20,6 +21,12 @@ type ServerConfig struct {
 
 type JWTConfig struct {
 	Secret string
+}
+
+type RedisConfig struct {
+	Addr     string
+	Password string
+	DB       int
 }
 
 func Load() (*Config, error) {
@@ -36,6 +43,11 @@ func Load() (*Config, error) {
 		},
 		JWT: JWTConfig{
 			Secret: getEnv("JWT_SECRET", "your-super-secret-jwt-key-change-in-production"),
+		},
+		Redis: RedisConfig{
+			Addr:     getEnv("REDIS_ADDR", "localhost:6379"),
+			Password: getEnv("REDIS_PASSWORD", ""),
+			DB:       0,
 		},
 	}
 

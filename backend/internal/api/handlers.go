@@ -11,6 +11,7 @@ import (
 
 	"xpired/internal/auth"
 	"xpired/internal/db"
+	worker "xpired/internal/worker"
 )
 
 type Handler struct {
@@ -324,6 +325,12 @@ func (h *Handler) CreateDocumentHandler(w http.ResponseWriter, r *http.Request) 
 		CreatedAt:      newDoc.CreatedAt,
 		UpdatedAt:      newDoc.UpdatedAt,
 	}
+
+	var reminderValues []db.ReminderInterval
+	for _, interval := range reminderIntervals {
+		reminderValues = append(reminderValues, *interval)
+	}
+	worker.ScheduleReminders(*newDoc, uuid.MustParse(userID), reminderValues)
 
 	resp := map[string]interface{}{
 		"message":  "Document created successfully",
