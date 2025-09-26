@@ -7,6 +7,8 @@ import (
 	"xpired/internal/auth"
 	"xpired/internal/config"
 	"xpired/internal/db"
+	database "xpired/internal/db"
+	worker "xpired/internal/worker"
 )
 
 func main() {
@@ -26,6 +28,16 @@ func main() {
 	}
 
 	auth.Init(cfg)
+	worker.InitQueue(cfg)
+
+	server := worker.NewServer(cfg)
+	repo := database.NewRepository(db)
+	mux := worker.NewMux(repo)
+
+	log.Println("Starting Asynq worker...")
+	if err := server.Run(mux); err != nil {
+		log.Fatalf("could not run asynq server: %v", err)
+	}
 
 	r := api.SetupRoutes(db)
 
