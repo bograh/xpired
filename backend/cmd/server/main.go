@@ -34,13 +34,13 @@ func main() {
 	repo := database.NewRepository(db)
 	mux := worker.NewMux(repo)
 
-	log.Println("Starting Asynq worker...")
-	if err := server.Run(mux); err != nil {
-		log.Fatalf("could not run asynq server: %v", err)
-	}
-
 	r := api.SetupRoutes(db)
 
 	log.Println("Server listening on PORT :8080")
 	http.ListenAndServe(":8080", r)
+
+	log.Println("Starting Asynq worker...")
+	if err := server.Run(mux); err != nil {
+		log.Fatalf("could not run asynq server: %v", err)
+	}
 }
