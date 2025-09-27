@@ -1,66 +1,21 @@
-version: '3.8'
-
 services:
-  # PostgreSQL Database
-  postgres:
-    image: postgres:latest
-    container_name: xpired-postgres
-    environment:
-      POSTGRES_DB: xpired_db
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
-    ports:
-      - "5432:5432"
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-      - ./migrations:/docker-entrypoint-initdb.d
-    networks:
-      - xpired-network
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres"]
-      interval: 30s
-      timeout: 10s
-      retries: 5
-
-  # Redis for queue management
-  redis:
-    image: redis:latest
-    container_name: xpired-redis
-    ports:
-      - "6379:6379"
-    volumes:
-      - redis_data:/data
-    networks:
-      - xpired-network
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 30s
-      timeout: 10s
-      retries: 5
-
-  # Go API Application
   api:
     build:
       context: .
       dockerfile: Dockerfile
     container_name: xpired-api
-    ports:
+    ports: 
       - "8080:8080"
     environment:
-      - DB_HOST=postgres
-      - DB_PORT=5432
-      - DB_USER=postgres
-      - DB_PASSWORD=postgres
-      - DB_NAME=xpired_db
-      - DB_SSL_MODE=disable
-      - REDIS_ADDR=redis:6379
-      - REDIS_PASSWORD=
-      - JWT_SECRET=your-super-secret-jwt-key-change-in-production
-    depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
+      - DB_HOST=${DB_HOST}
+      - DB_PORT=${DB_PORT}
+      - DB_USER=${DB_USER}
+      - DB_PASSWORD=${DB_PASSWORD}
+      - DB_NAME=${DB_NAME}
+      - DB_SSL_MODE=${DB_SSL_MODE}
+      - REDIS_ADDR=${REDIS_ADDR}
+      - REDIS_PASSWORD=${REDIS_PASSWORD}
+      - JWT_SECRET=${JWT_SECRET}
     networks:
       - xpired-network
     restart: unless-stopped
@@ -73,7 +28,3 @@ services:
 networks:
   xpired-network:
     driver: bridge
-
-volumes:
-  postgres_data:
-  redis_data:
