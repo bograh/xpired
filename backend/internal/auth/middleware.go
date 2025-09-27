@@ -2,23 +2,42 @@ package auth
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
+	"time"
 )
 
 func AuthMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		cookie, err := r.Cookie("auth")
-		if err != nil {
-			http.Error(w, "Unauthorized: missing auth cookie", http.StatusUnauthorized)
-			return
+		var tokenString string
+		var errResp ErrorResponse
+		errResp.Timestamp = time.Now()
+
+		authHeader := r.Header.Get("Authorization")
+		if authHeader != "" && len(authHeader) > 7 && authHeader[:7] == "Bearer " {
+			tokenString = authHeader[7:]
+		} else {
+			cookie, err := r.Cookie("auth")
+			if err != nil {
+				errResp.Message = "Unauthorized: missing auth token"
+				errResp.Status = http.StatusUnauthorized
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(errResp.Status)
+				json.NewEncoder(w).Encode(errResp)
+				return
+			}
+			tokenString = cookie.Value
 		}
 
-		tokenString := cookie.Value
 		claims, err := ParseToken(tokenString)
 		if err != nil {
-			http.Error(w, fmt.Sprintf("Invalid token: %v", err), http.StatusUnauthorized)
+			errResp.Message = fmt.Sprintf("Invalid token: %v", err)
+			errResp.Status = http.StatusUnauthorized
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(errResp.Status)
+			json.NewEncoder(w).Encode(errResp)
 			return
 		}
 
@@ -29,6 +48,7 @@ func AuthMiddleware(next http.Handler) http.Handler {
 }
 
 type contextKey string
+
 const userIDKey contextKey = "userID"
 
 func WithUserID(ctx context.Context, userID string) context.Context {
