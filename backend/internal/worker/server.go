@@ -16,7 +16,10 @@ const (
 
 func NewServer(cfg *config.Config) *asynq.Server {
 	return asynq.NewServer(
-		asynq.RedisClientOpt{Addr: cfg.Redis.Addr},
+		asynq.RedisClientOpt{
+			Addr:     cfg.Redis.Addr,
+			Password: cfg.Redis.Password,
+		},
 		asynq.Config{
 			Concurrency: 10,
 			Queues: map[string]int{
