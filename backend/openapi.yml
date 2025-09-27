@@ -4,7 +4,7 @@ info:
   version: 1.0.0
   description: API for managing document expiration reminders
 servers:
-  - url: "https://xpired.up.railway.app/"
+  - url: "https://xpired.up.railway.app"
     description: Dev server
   - url: "http://localhost:8080"
     description: Local server
