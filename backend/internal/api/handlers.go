@@ -41,22 +41,26 @@ func (h *Handler) HealthHandler(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) RegisterHandler(w http.ResponseWriter, r *http.Request) {
 	var req UserRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		errResp := BadRequestError("Invalid request body")
+		WriteErrorResponse(w, errResp)
 		return
 	}
 	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
 	if err != nil {
-		http.Error(w, "Failed to hash password", http.StatusInternalServerError)
+		errResp := InternalServerError("Failed to hash password")
+		WriteErrorResponse(w, errResp)
 		return
 	}
 
 	if req.Email == "" || req.Password == "" || req.Name == "" {
-		http.Error(w, "Missing required fields", http.StatusBadRequest)
+		errResp := BadRequestError("Missing required fields")
+		WriteErrorResponse(w, errResp)
 		return
 	}
 
 	if err := h.repo.CheckUserExistsByEmail(r.Context(), req.Email); err == nil {
-		http.Error(w, "User already exists", http.StatusConflict)
+		errResp := ConflictError("User already exists")
+		WriteErrorResponse(w, errResp)
 		return
 	}
 
@@ -70,13 +74,15 @@ func (h *Handler) RegisterHandler(w http.ResponseWriter, r *http.Request) {
 		UpdatedAt:   time.Now(),
 	}
 	if err := h.repo.CreateUser(r.Context(), newUser); err != nil {
-		http.Error(w, "Failed to create user", http.StatusInternalServerError)
+		errResp := InternalServerError("Failed to create user")
+		WriteErrorResponse(w, errResp)
 		return
 	}
 
 	token, err := auth.GenerateToken(newUser.ID)
 	if err != nil {
-		http.Error(w, "Failed to generate token", http.StatusInternalServerError)
+		errResp := InternalServerError("Failed to generate token")
+		WriteErrorResponse(w, errResp)
 		return
 	}
 
@@ -100,6 +106,7 @@ func (h *Handler) RegisterHandler(w http.ResponseWriter, r *http.Request) {
 	resp := map[string]interface{}{
 		"message": "User registered successfully",
 		"user":    userResp,
+		"token":   token,
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -111,24 +118,28 @@ func (h *Handler) LoginHandler(w http.ResponseWriter, r *http.Request) {
 	var req LoginRequest
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		errResp := BadRequestError("Invalid request body")
+		WriteErrorResponse(w, errResp)
 		return
 	}
 
 	user, err := h.repo.GetUserByEmail(r.Context(), req.Email)
 	if err != nil {
-		http.Error(w, "Invalid email or password", http.StatusUnauthorized)
+		errResp := UnauthorizedError("Invalid email or password")
+		WriteErrorResponse(w, errResp)
 		return
 	}
 
 	if err := bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(req.Password)); err != nil {
-		http.Error(w, "Invalid email or password", http.StatusUnauthorized)
+		errResp := UnauthorizedError("Invalid email or password")
+		WriteErrorResponse(w, errResp)
 		return
 	}
 
 	token, err := auth.GenerateToken(user.ID)
 	if err != nil {
-		http.Error(w, "Failed to generate token", http.StatusInternalServerError)
+		errResp := InternalServerError("Failed to generate token")
+		WriteErrorResponse(w, errResp)
 		return
 	}
 
@@ -152,6 +163,7 @@ func (h *Handler) LoginHandler(w http.ResponseWriter, r *http.Request) {
 	resp := map[string]interface{}{
 		"message": "User login successful",
 		"user":    userResp,
+		"token":   token,
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -161,13 +173,15 @@ func (h *Handler) LoginHandler(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) UserProfileHandler(w http.ResponseWriter, r *http.Request) {
 	userID, err := auth.GetUserIDFromContext(r)
 	if err != nil {
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		errResp := UnauthorizedError("Unauthorized")
+		WriteErrorResponse(w, errResp)
 		return
 	}
 
 	user, err := h.repo.GetUserByID(r.Context(), userID)
 	if err != nil {
-		http.Error(w, "User not found", http.StatusNotFound)
+		errResp := NotFoundError("User not found")
+		WriteErrorResponse(w, errResp)
 		return
 	}
 
@@ -185,7 +199,8 @@ func (h *Handler) UserProfileHandler(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(resp); err != nil {
-		http.Error(w, "Failed to encode response", http.StatusInternalServerError)
+		errResp := InternalServerError("Failed to encode response")
+		WriteErrorResponse(w, errResp)
 	}
 }
 
@@ -206,26 +221,30 @@ func (h *Handler) LogoutHandler(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(resp); err != nil {
-		http.Error(w, "Failed to encode response", http.StatusInternalServerError)
+		errResp := InternalServerError("Failed to encode response")
+		WriteErrorResponse(w, errResp)
 	}
 }
 
 func (h *Handler) ListDocumentsHandler(w http.ResponseWriter, r *http.Request) {
 	userID, err := auth.GetUserIDFromContext(r)
 	if err != nil {
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		errResp := UnauthorizedError("Unauthorized")
+		WriteErrorResponse(w, errResp)
 		return
 	}
 
 	err = h.repo.CheckUserExistsById(r.Context(), userID)
 	if err != nil {
-		http.Error(w, "User not found", http.StatusNotFound)
+		errResp := NotFoundError("User not found")
+		WriteErrorResponse(w, errResp)
 		return
 	}
 
 	documents, err := h.repo.ListDocumentsByUserID(r.Context(), userID)
 	if err != nil {
-		http.Error(w, "Failed to fetch documents", http.StatusInternalServerError)
+		errResp := InternalServerError("Failed to fetch documents")
+		WriteErrorResponse(w, errResp)
 		return
 	}
 
@@ -236,30 +255,35 @@ func (h *Handler) ListDocumentsHandler(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(resp); err != nil {
-		http.Error(w, "Failed to encode response", http.StatusInternalServerError)
+		errResp := InternalServerError("Failed to encode response")
+		WriteErrorResponse(w, errResp)
 	}
 }
 
 func (h *Handler) CreateDocumentHandler(w http.ResponseWriter, r *http.Request) {
 	var req DocumentRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		errResp := BadRequestError("Invalid request body")
+		WriteErrorResponse(w, errResp)
 		return
 	}
 
 	userID, err := auth.GetUserIDFromContext(r)
 	if err != nil {
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		errResp := UnauthorizedError("Unauthorized")
+		WriteErrorResponse(w, errResp)
 		return
 	}
 	err = h.repo.CheckUserExistsById(r.Context(), userID)
 	if err != nil {
-		http.Error(w, "User not found", http.StatusNotFound)
+		errResp := NotFoundError("User not found")
+		WriteErrorResponse(w, errResp)
 		return
 	}
 
 	if req.Name == "" || req.ExpirationDate.IsZero() || req.Timezone == "" {
-		http.Error(w, "Missing required fields", http.StatusBadRequest)
+		errResp := BadRequestError("Missing required fields")
+		WriteErrorResponse(w, errResp)
 		return
 	}
 
@@ -278,13 +302,15 @@ func (h *Handler) CreateDocumentHandler(w http.ResponseWriter, r *http.Request) 
 
 	err = h.repo.CreateDocument(r.Context(), newDoc)
 	if err != nil {
-		http.Error(w, "Failed to create document", http.StatusInternalServerError)
+		errResp := InternalServerError("Failed to create document")
+		WriteErrorResponse(w, errResp)
 		return
 	}
 
 	reminderIntervals, err := h.repo.GetReminderIntervalsFromIdLabels(r.Context(), req.Reminders)
 	if err != nil {
-		http.Error(w, "Failed to fetch reminder intervals", http.StatusInternalServerError)
+		errResp := InternalServerError("Failed to fetch reminder intervals")
+		WriteErrorResponse(w, errResp)
 		return
 	}
 
@@ -304,7 +330,8 @@ func (h *Handler) CreateDocumentHandler(w http.ResponseWriter, r *http.Request) 
 		}
 		err = h.repo.SetDocumentReminders(r.Context(), newDoc.ID.String(), docReminder)
 		if err != nil {
-			http.Error(w, "Failed to set document reminders", http.StatusInternalServerError)
+			errResp := InternalServerError("Failed to set document reminders")
+			WriteErrorResponse(w, errResp)
 			return
 		}
 	}
@@ -340,42 +367,49 @@ func (h *Handler) CreateDocumentHandler(w http.ResponseWriter, r *http.Request) 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
 	if err := json.NewEncoder(w).Encode(resp); err != nil {
-		http.Error(w, "Failed to encode response", http.StatusInternalServerError)
+		errResp := InternalServerError("Failed to encode response")
+		WriteErrorResponse(w, errResp)
 	}
 }
 
 func (h *Handler) GetDocumentHandler(w http.ResponseWriter, r *http.Request) {
 	documentId := chi.URLParam(r, "id")
-	if documentId == "" {
-		http.Error(w, "Document ID is required", http.StatusBadRequest)
+	if documentId == "" || documentId == "undefined" {
+		errResp := BadRequestError("Document ID is required")
+		WriteErrorResponse(w, errResp)
 		return
 	}
 	userID, err := auth.GetUserIDFromContext(r)
 	if err != nil {
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		errResp := UnauthorizedError("Unauthorized")
+		WriteErrorResponse(w, errResp)
 		return
 	}
 
 	err = h.repo.CheckUserExistsById(r.Context(), userID)
 	if err != nil {
-		http.Error(w, "User not found", http.StatusNotFound)
+		errResp := NotFoundError("User not found")
+		WriteErrorResponse(w, errResp)
 		return
 	}
 
 	doc, err := h.repo.GetDocumentByID(r.Context(), documentId)
 	if err != nil {
-		http.Error(w, "Document not found", http.StatusNotFound)
+		errResp := NotFoundError("Document not found")
+		WriteErrorResponse(w, errResp)
 		return
 	}
 
 	if doc.UserID.String() != userID {
-		http.Error(w, "Forbidden", http.StatusForbidden)
+		errResp := ForbiddenError("Forbidden")
+		WriteErrorResponse(w, errResp)
 		return
 	}
 
 	reminders, err := h.repo.GetDocumentRemindersByDocumentID(r.Context(), documentId)
 	if err != nil {
-		http.Error(w, "Failed to fetch document reminders", http.StatusInternalServerError)
+		errResp := InternalServerError("Failed to fetch document reminders")
+		WriteErrorResponse(w, errResp)
 		return
 	}
 
@@ -412,41 +446,48 @@ func (h *Handler) GetDocumentHandler(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(resp); err != nil {
-		http.Error(w, "Failed to encode response", http.StatusInternalServerError)
+		errResp := InternalServerError("Failed to encode response")
+		WriteErrorResponse(w, errResp)
 	}
 }
 
 func (h *Handler) UpdateDocumentHandler(w http.ResponseWriter, r *http.Request) {
 	documentId := chi.URLParam(r, "id")
-	if documentId == "" {
-		http.Error(w, "Document ID is required", http.StatusBadRequest)
+	if documentId == "" || documentId == "undefined" {
+		errResp := BadRequestError("Document ID is required")
+		WriteErrorResponse(w, errResp)
 		return
 	}
 	userID, err := auth.GetUserIDFromContext(r)
 	if err != nil {
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		errResp := UnauthorizedError("Unauthorized")
+		WriteErrorResponse(w, errResp)
 		return
 	}
 
 	err = h.repo.CheckUserExistsById(r.Context(), userID)
 	if err != nil {
-		http.Error(w, "User not found", http.StatusNotFound)
+		errResp := NotFoundError("User not found")
+		WriteErrorResponse(w, errResp)
 		return
 	}
 
 	doc, err := h.repo.GetDocumentByID(r.Context(), documentId)
 	if err != nil {
-		http.Error(w, "Document not found", http.StatusNotFound)
+		errResp := NotFoundError("Document not found")
+		WriteErrorResponse(w, errResp)
 		return
 	}
 
 	if doc.UserID.String() != userID {
-		http.Error(w, "Forbidden", http.StatusForbidden)
+		errResp := ForbiddenError("Forbidden")
+		WriteErrorResponse(w, errResp)
 		return
 	}
 	var req DocumentRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		errResp := BadRequestError("Invalid request body")
+		WriteErrorResponse(w, errResp)
 		return
 	}
 
@@ -472,13 +513,15 @@ func (h *Handler) UpdateDocumentHandler(w http.ResponseWriter, r *http.Request) 
 
 	err = h.repo.UpdateDocument(r.Context(), doc)
 	if err != nil {
-		http.Error(w, "Failed to update document", http.StatusInternalServerError)
+		errResp := InternalServerError("Failed to update document")
+		WriteErrorResponse(w, errResp)
 		return
 	}
 
 	reminderIntervals, err := h.repo.GetReminderIntervalsFromIdLabels(r.Context(), req.Reminders)
 	if err != nil {
-		http.Error(w, "Failed to fetch reminder intervals", http.StatusInternalServerError)
+		errResp := InternalServerError("Failed to fetch reminder intervals")
+		WriteErrorResponse(w, errResp)
 		return
 	}
 
@@ -498,7 +541,8 @@ func (h *Handler) UpdateDocumentHandler(w http.ResponseWriter, r *http.Request) 
 		}
 		err = h.repo.SetDocumentReminders(r.Context(), doc.ID.String(), docReminder)
 		if err != nil {
-			http.Error(w, "Failed to set document reminders", http.StatusInternalServerError)
+			errResp := InternalServerError("Failed to set document reminders")
+			WriteErrorResponse(w, errResp)
 			return
 		}
 	}
@@ -524,41 +568,48 @@ func (h *Handler) UpdateDocumentHandler(w http.ResponseWriter, r *http.Request) 
 
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(resp); err != nil {
-		http.Error(w, "Failed to encode response", http.StatusInternalServerError)
+		errResp := InternalServerError("Failed to encode response")
+		WriteErrorResponse(w, errResp)
 	}
 }
 
 func (h *Handler) DeleteDocumentHandler(w http.ResponseWriter, r *http.Request) {
 	documentId := chi.URLParam(r, "id")
-	if documentId == "" {
-		http.Error(w, "Document ID is required", http.StatusBadRequest)
+	if documentId == "" || documentId == "undefined" {
+		errResp := BadRequestError("Document ID is required")
+		WriteErrorResponse(w, errResp)
 		return
 	}
 	userID, err := auth.GetUserIDFromContext(r)
 	if err != nil {
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		errResp := UnauthorizedError("Unauthorized")
+		WriteErrorResponse(w, errResp)
 		return
 	}
 
 	err = h.repo.CheckUserExistsById(r.Context(), userID)
 	if err != nil {
-		http.Error(w, "User not found", http.StatusNotFound)
+		errResp := NotFoundError("User not found")
+		WriteErrorResponse(w, errResp)
 		return
 	}
 
 	doc, err := h.repo.GetDocumentByID(r.Context(), documentId)
 	if err != nil {
-		http.Error(w, "Document not found", http.StatusNotFound)
+		errResp := NotFoundError("Document not found")
+		WriteErrorResponse(w, errResp)
 		return
 	}
 
 	if doc.UserID.String() != userID {
-		http.Error(w, "Forbidden", http.StatusForbidden)
+		errResp := ForbiddenError("Forbidden")
+		WriteErrorResponse(w, errResp)
 		return
 	}
 	err = h.repo.DeleteDocument(r.Context(), documentId)
 	if err != nil {
-		http.Error(w, "Failed to delete document", http.StatusInternalServerError)
+		errResp := InternalServerError("Failed to delete document")
+		WriteErrorResponse(w, errResp)
 		return
 	}
 
@@ -568,7 +619,8 @@ func (h *Handler) DeleteDocumentHandler(w http.ResponseWriter, r *http.Request) 
 func (h *Handler) GetReminderIntervalsHandler(w http.ResponseWriter, r *http.Request) {
 	intervals, err := h.repo.GetAllReminderIntervals(r.Context())
 	if err != nil {
-		http.Error(w, "Failed to fetch reminder intervals", http.StatusInternalServerError)
+		errResp := InternalServerError("Failed to fetch reminder intervals")
+		WriteErrorResponse(w, errResp)
 		return
 	}
 
@@ -588,42 +640,49 @@ func (h *Handler) GetReminderIntervalsHandler(w http.ResponseWriter, r *http.Req
 
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(resp); err != nil {
-		http.Error(w, "Failed to encode response", http.StatusInternalServerError)
+		errResp := InternalServerError("Failed to encode response")
+		WriteErrorResponse(w, errResp)
 	}
 }
 
 func (h *Handler) GetDocumentRemindersHandler(w http.ResponseWriter, r *http.Request) {
 	documentId := chi.URLParam(r, "id")
-	if documentId == "" {
-		http.Error(w, "Document ID is required", http.StatusBadRequest)
+	if documentId == "" || documentId == "undefined" {
+		errResp := BadRequestError("Document ID is required")
+		WriteErrorResponse(w, errResp)
 		return
 	}
 	userID, err := auth.GetUserIDFromContext(r)
 	if err != nil {
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		errResp := UnauthorizedError("Unauthorized")
+		WriteErrorResponse(w, errResp)
 		return
 	}
 
 	err = h.repo.CheckUserExistsById(r.Context(), userID)
 	if err != nil {
-		http.Error(w, "User not found", http.StatusNotFound)
+		errResp := NotFoundError("User not found")
+		WriteErrorResponse(w, errResp)
 		return
 	}
 
 	doc, err := h.repo.GetDocumentByID(r.Context(), documentId)
 	if err != nil {
-		http.Error(w, "Document not found", http.StatusNotFound)
+		errResp := NotFoundError("Document not found")
+		WriteErrorResponse(w, errResp)
 		return
 	}
 
 	if doc.UserID.String() != userID {
-		http.Error(w, "Forbidden", http.StatusForbidden)
+		errResp := ForbiddenError("Forbidden")
+		WriteErrorResponse(w, errResp)
 		return
 	}
 
 	reminders, err := h.repo.GetDocumentRemindersByDocumentID(r.Context(), documentId)
 	if err != nil {
-		http.Error(w, "Failed to fetch document reminders", http.StatusInternalServerError)
+		errResp := InternalServerError("Failed to fetch document reminders")
+		WriteErrorResponse(w, errResp)
 		return
 	}
 
@@ -654,54 +713,63 @@ func (h *Handler) GetDocumentRemindersHandler(w http.ResponseWriter, r *http.Req
 
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(resp); err != nil {
-		http.Error(w, "Failed to encode response", http.StatusInternalServerError)
+		errResp := InternalServerError("Failed to encode response")
+		WriteErrorResponse(w, errResp)
 	}
 }
 
 func (h *Handler) ToggleDocumentReminderHandler(w http.ResponseWriter, r *http.Request) {
 	documentId := chi.URLParam(r, "id")
-	if documentId == "" {
-		http.Error(w, "Document ID is required", http.StatusBadRequest)
+	if documentId == "" || documentId == "undefined" {
+		errResp := BadRequestError("Document ID is required")
+		WriteErrorResponse(w, errResp)
 		return
 	}
 	userID, err := auth.GetUserIDFromContext(r)
 	if err != nil {
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		errResp := UnauthorizedError("Unauthorized")
+		WriteErrorResponse(w, errResp)
 		return
 	}
 
 	err = h.repo.CheckUserExistsById(r.Context(), userID)
 	if err != nil {
-		http.Error(w, "User not found", http.StatusNotFound)
+		errResp := NotFoundError("User not found")
+		WriteErrorResponse(w, errResp)
 		return
 	}
 
 	doc, err := h.repo.GetDocumentByID(r.Context(), documentId)
 	if err != nil {
-		http.Error(w, "Document not found", http.StatusNotFound)
+		errResp := NotFoundError("Document not found")
+		WriteErrorResponse(w, errResp)
 		return
 	}
 
 	if doc.UserID.String() != userID {
-		http.Error(w, "Forbidden", http.StatusForbidden)
+		errResp := ForbiddenError("Forbidden")
+		WriteErrorResponse(w, errResp)
 		return
 	}
 
 	var req ToggleDocumentReminderRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		errResp := BadRequestError("Invalid request body")
+		WriteErrorResponse(w, errResp)
 		return
 	}
 
 	reminderIntervals, err := h.repo.GetReminderIntervalsFromIdLabels(r.Context(), []string{req.ReminderIntervalID})
 	if err != nil || len(reminderIntervals) == 0 {
-		http.Error(w, "Reminder interval not found", http.StatusNotFound)
+		errResp := NotFoundError("Reminder interval not found")
+		WriteErrorResponse(w, errResp)
 		return
 	}
 	reminderInterval := reminderIntervals[0]
 	err = h.repo.ToggleDocumentReminder(r.Context(), doc.ID.String(), reminderInterval.ID, req.Enabled)
 	if err != nil {
-		http.Error(w, "Failed to update document reminder", http.StatusInternalServerError)
+		errResp := InternalServerError("Failed to toggle document reminder")
+		WriteErrorResponse(w, errResp)
 		return
 	}
 
@@ -711,6 +779,7 @@ func (h *Handler) ToggleDocumentReminderHandler(w http.ResponseWriter, r *http.R
 
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(resp); err != nil {
-		http.Error(w, "Failed to encode response", http.StatusInternalServerError)
+		errResp := InternalServerError("Failed to encode response")
+		WriteErrorResponse(w, errResp)
 	}
 }
