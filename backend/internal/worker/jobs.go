@@ -15,7 +15,10 @@ import (
 var client *asynq.Client
 
 func InitQueue(cfg *config.Config) {
-	client = asynq.NewClient(asynq.RedisClientOpt{Addr: cfg.Redis.Addr})
+	client = asynq.NewClient(asynq.RedisClientOpt{
+		Addr:     cfg.Redis.Addr,
+		Password: cfg.Redis.Password,
+	})
 	client.Ping()
 	log.Println("Asynq client initialized")
 }
